@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, HelpCircle, Languages } from "lucide-react";
+import { BookOpen, Bug, Languages } from "lucide-react";
 import { capture } from "./lib/analytics";
 import { TabBar, type Tab } from "./components/TabBar";
 import { Notepad } from "./components/Notepad";
@@ -392,15 +392,16 @@ export function App() {
               </span>
             )}
           </button>
-          <button
-            type="button"
-            onClick={() => setOnboardingOpen(true)}
-            aria-label="Help"
-            title="Help"
+          <a
+            href="https://x.com/messages/compose?recipient_id=jefffreyli"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Report a bug"
+            title="Report a bug"
             className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:text-[var(--red-ink)] hover:bg-[var(--red-wash)] transition-colors"
           >
-            <HelpCircle className="h-4 w-4" />
-          </button>
+            <Bug className="h-4 w-4" />
+          </a>
         </div>
       </header>
 
