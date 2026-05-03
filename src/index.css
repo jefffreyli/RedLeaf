@@ -1,0 +1,129 @@
+@import "../styles/globals.css";
+
+@layer base {
+    html {
+        scroll-behavior: smooth;
+    }
+    html,
+    body {
+        margin: 0;
+        min-width: 320px;
+        min-height: 100vh;
+        background: var(--paper);
+        color: var(--foreground);
+    }
+
+    body {
+        background-image:
+            radial-gradient(
+                circle at 20% 0%,
+                rgba(193, 41, 46, 0.04),
+                transparent 40%
+            ),
+            radial-gradient(
+                circle at 80% 100%,
+                rgba(193, 41, 46, 0.03),
+                transparent 40%
+            );
+        background-attachment: fixed;
+    }
+
+    #root {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+    }
+
+    button,
+    [role="button"],
+    a {
+        transition:
+            color 180ms ease,
+            background-color 180ms ease,
+            border-color 180ms ease,
+            opacity 180ms ease,
+            transform 180ms ease,
+            box-shadow 180ms ease;
+    }
+}
+
+/* Reading character spans — keep zero padding so widths match the textarea exactly */
+.read-char {
+    position: relative;
+    cursor: pointer;
+    border-radius: 3px;
+    transition:
+        background-color 180ms ease,
+        color 180ms ease,
+        box-shadow 180ms ease;
+}
+.read-char:hover {
+    background-color: var(--red-wash);
+}
+.read-char.is-active {
+    background-color: var(--red-ink);
+    color: #fff;
+    box-shadow: 0 0 0 1px var(--red-ink);
+}
+
+/* Subtitle line entrance */
+@keyframes fadeUp {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Subtle animation for hover card slide-in */
+@keyframes cardSlideIn {
+    from {
+        opacity: 0;
+        transform: translateX(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+.card-slide-in {
+    animation: cardSlideIn 180ms ease-out both;
+}
+
+/* Pinyin tone-mark styling */
+.pinyin {
+    font-feature-settings: "kern", "liga";
+    letter-spacing: 0.02em;
+}
+
+/* Scrollbars - thin and minimal, smooth scrolling */
+.thin-scroll {
+    scroll-behavior: smooth;
+}
+.thin-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+.thin-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+    transition: background 180ms ease;
+}
+.thin-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-foreground);
+}
+
+@media (prefers-reduced-motion) {
+    *,
+    ::before,
+    ::after {
+        animation: none !important;
+        transition: none !important;
+    }
+}
