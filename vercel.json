@@ -1,0 +1,13 @@
+{
+  "buildCommand": "bun run build",
+  "outputDirectory": "dist",
+  "functions": {
+    "api/tts.ts":       { "maxDuration": 30 },
+    "api/lookup.ts":    { "maxDuration": 15 },
+    "api/vocab.ts":     { "maxDuration": 60 },
+    "api/subtitles.ts": { "maxDuration": 60 }
+  },
+  "rewrites": [
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ]
+}

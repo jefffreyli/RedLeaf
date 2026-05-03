@@ -1,0 +1,20 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { openAiLookup } from "../src/api/routes";
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+  try {
+    const body = req.body as { text?: string; context?: string };
+    if (!body?.text || typeof body.text !== "string") {
+      return res.status(400).json({ error: "Missing 'text' string" });
+    }
+    const result = await openAiLookup(body.text, body.context);
+    return res.status(200).json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("/api/lookup error:", message);
+    return res.status(500).json({ error: message });
+  }
+}
