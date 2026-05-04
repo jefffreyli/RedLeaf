@@ -55,7 +55,6 @@ export function App() {
   const [tabs, setTabs] = useState<Tab[]>(initial.tabs);
   const [activeTabId, setActiveTabId] = useState<string>(initial.activeTabId);
 
-  const [hoveredChar, setHoveredChar] = useState<string | null>(null);
   const [pinnedChar, setPinnedChar] = useState<string | null>(null);
   const [audioChar, setAudioChar] = useState<string | null>(null);
 
@@ -92,8 +91,7 @@ export function App() {
   );
   const vocabCount = vocabEntries?.length ?? 0;
 
-  // Hover takes priority over pinned selection
-  const displayChar = hoveredChar ?? pinnedChar;
+  const displayChar = pinnedChar;
 
   // Track text content — fires 3 s after the user stops typing/pasting
   const textTrackTimerRef = useRef<number | null>(null);
@@ -232,17 +230,6 @@ export function App() {
     // Actual fetching is triggered by handlers below; this just syncs from cache on source change
   }, [displayChar]);
 
-  // Hover (temporary, span view)
-  const handleHoverChar = useCallback(
-    (char: string | null, context?: string) => {
-      setHoveredChar(char);
-      if (char === null) return;
-      capture("character_lookup", { char, source: "hover" });
-      triggerLookup(char, context, true);
-    },
-    [triggerLookup],
-  );
-
   // Text selection → pin to card; on small screens auto-opens the modal
   const handleSelectChar = useCallback(
     (char: string | null, context?: string) => {
@@ -250,17 +237,15 @@ export function App() {
       setPinnedChar(char);
       if (char === null) {
         setCharacterModalOpen(false);
-        if (!hoveredChar) {
-          setLookupData(null);
-          setLookupLoading(false);
-          setLookupError(null);
-        }
+        setLookupData(null);
+        setLookupLoading(false);
+        setLookupError(null);
         return;
       }
       setCharacterModalOpen(true);
       triggerLookup(char, context, false);
     },
-    [triggerLookup, hoveredChar],
+    [triggerLookup],
   );
 
   // Audio char (tracked for Notepad highlight only — card is unaffected during playback)
@@ -328,7 +313,6 @@ export function App() {
 
   // Reset when switching tabs
   useEffect(() => {
-    setHoveredChar(null);
     setPinnedChar(null);
     setAudioChar(null);
     setCharacterModalOpen(false);
@@ -430,7 +414,6 @@ export function App() {
             key={activeTab.id}
             content={activeTab.content}
             onContentChange={updateContent}
-            onHoverChar={handleHoverChar}
             onSelectChar={handleSelectChar}
             onAudioChar={handleAudioChar}
             maxLength={MAX_TAB_CHARS}

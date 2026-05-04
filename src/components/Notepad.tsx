@@ -11,8 +11,6 @@ const CJK_RE = /\p{Script=Han}/u;
 type Props = {
     content: string;
     onContentChange: (next: string) => void;
-    /** Called when mouse hovers a span (not pinned). Pass null to clear. */
-    onHoverChar: (char: string | null, context?: string) => void;
     /** Called when the user highlights text in the textarea. Pass null to unpin. */
     onSelectChar: (char: string | null, context?: string) => void;
     /** Called with the currently highlighted char during audio playback (from cache only). */
@@ -24,7 +22,6 @@ type Props = {
 export function Notepad({
     content,
     onContentChange,
-    onHoverChar,
     onSelectChar,
     onAudioChar,
     maxLength,
@@ -34,7 +31,6 @@ export function Notepad({
     // keeps the span view visible even while paused.
     const [audioStarted, setAudioStarted] = useState(false);
     const [activeAlignIdx, setActiveAlignIdx] = useState<number | null>(null);
-    const [hoveredOffset, setHoveredOffset] = useState<number | null>(null);
     const readPaneRef = useRef<HTMLDivElement | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
     const lastAudioCharRef = useRef<string | null>(null);
@@ -98,14 +94,6 @@ export function Notepad({
         };
     }, [isPlaying, content]);
 
-    // Clear hover state when leaving the span view entirely
-    useEffect(() => {
-        if (!audioStarted) {
-            setHoveredOffset(null);
-            onHoverChar(null);
-        }
-    }, [audioStarted, onHoverChar]);
-
     // Map alignment index → source character → notify parent
     useEffect(() => {
         if (activeAlignIdx === null) {
@@ -138,43 +126,6 @@ export function Notepad({
             el.scrollIntoView({ behavior: "smooth", block: "center" });
         }
     }, [activeAlignIdx]);
-
-    // Hover in span view
-    const handleSpanMouseMove = useCallback(
-        (e: React.MouseEvent<HTMLDivElement>) => {
-            const span = (e.target as HTMLElement).closest<HTMLElement>(
-                ".read-char",
-            );
-            if (!span) {
-                if (hoveredOffset !== null) {
-                    setHoveredOffset(null);
-                    onHoverChar(null);
-                }
-                return;
-            }
-            const offsetAttr = span.getAttribute("data-offset");
-            const offset = offsetAttr === null ? null : Number(offsetAttr);
-            if (
-                offset === null ||
-                Number.isNaN(offset) ||
-                offset === hoveredOffset
-            )
-                return;
-            setHoveredOffset(offset);
-            onHoverChar(
-                span.textContent ?? "",
-                getContextAround(content, offset),
-            );
-        },
-        [hoveredOffset, content, onHoverChar],
-    );
-
-    const handleSpanMouseLeave = useCallback(() => {
-        if (hoveredOffset !== null) {
-            setHoveredOffset(null);
-            onHoverChar(null);
-        }
-    }, [hoveredOffset, onHoverChar]);
 
     // Selection in span view → pin to card. Reads window.getSelection() and
     // resolves character offsets via the [data-offset] attribute on each .read-char span.
@@ -230,7 +181,9 @@ export function Notepad({
     // Double-click on a span → seek audio to that character's position in the timeline
     const handleSpanDoubleClick = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
-            const span = (e.target as HTMLElement).closest<HTMLElement>(".read-char");
+            const span = (e.target as HTMLElement).closest<HTMLElement>(
+                ".read-char",
+            );
             if (!span) return;
             const offsetAttr = span.getAttribute("data-offset");
             const charOffset = offsetAttr === null ? null : Number(offsetAttr);
@@ -330,8 +283,6 @@ export function Notepad({
                 {audioStarted ? (
                     <div
                         ref={readPaneRef}
-                        onMouseMove={handleSpanMouseMove}
-                        onMouseLeave={handleSpanMouseLeave}
                         onPointerUp={handleSpanPointerUp}
                         onDoubleClick={handleSpanDoubleClick}
                         className="w-full h-full overflow-y-auto thin-scroll p-4 sm:p-8 font-cjk text-xl sm:text-2xl leading-loose whitespace-pre-wrap text-foreground cursor-text select-text"
