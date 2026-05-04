@@ -57,6 +57,8 @@ export function App() {
 
   const [pinnedChar, setPinnedChar] = useState<string | null>(null);
   const [audioChar, setAudioChar] = useState<string | null>(null);
+  const [readerMode, setReaderMode] = useState<"normal" | "english">("normal");
+  const englishLocked = readerMode === "english";
 
   const [lookupData, setLookupData] = useState<LookupData | null>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
@@ -408,6 +410,7 @@ export function App() {
           onGenerate={handleGenerateVocab}
           onRemoveEntry={handleRemoveVocab}
           onSelectEntry={entry => handleSelectChar(entry.zh)}
+          frozen={englishLocked}
         />
         <div className="flex-1 min-w-0 min-h-0 border-x border-border overflow-hidden flex flex-col">
           <Notepad
@@ -417,9 +420,10 @@ export function App() {
             onSelectChar={handleSelectChar}
             onAudioChar={handleAudioChar}
             maxLength={MAX_TAB_CHARS}
+            onReaderModeChange={setReaderMode}
           />
         </div>
-        <aside className="hidden md:block w-80 shrink-0 min-h-0 overflow-hidden bg-background">
+        <aside className="hidden md:block w-96 shrink-0 min-h-0 h-full overflow-hidden bg-background">
           <CharacterCard
             character={displayChar}
             loading={lookupLoading}
@@ -457,6 +461,7 @@ export function App() {
                 setVocabModalOpen(false);
                 handleSelectChar(entry.zh);
               }}
+              frozen={englishLocked}
               className="h-full flex-none"
             />
           </div>

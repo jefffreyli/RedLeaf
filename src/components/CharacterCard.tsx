@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Loader2, Plus, Volume2 } from "lucide-react";
+import { Check, Loader2, Pause, Plus, Volume2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { VocabEntry } from "./VocabBank";
 
@@ -26,6 +26,11 @@ export function CharacterCard({ character, loading, data, error, onAddToVocab, v
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const flashTimerRef = useRef<number | null>(null);
 
+  // A phrase (5–30 chars): hide pos + example, keep pinyin
+  const isPhrase = (character?.length ?? 0) > 4;
+  // A passage (> 30 chars): translation only — no pinyin, no pos, no example
+  const isPassage = (character?.length ?? 0) > 30;
+
   useEffect(() => {
     return () => {
       if (audioRef.current) {
@@ -44,6 +49,14 @@ export function CharacterCard({ character, loading, data, error, onAddToVocab, v
       flashTimerRef.current = null;
     }
   }, [character]);
+
+  const stopSnippet = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    setPlaying(null);
+  };
 
   const handleAdd = () => {
     if (!character || !data) return;
@@ -65,6 +78,11 @@ export function CharacterCard({ character, loading, data, error, onAddToVocab, v
   const alreadyInBank = character ? vocabZhSet.has(character) : false;
 
   const playSnippet = async (text: string, kind: "char" | "example") => {
+    // If already playing this kind, act as pause/stop
+    if (playing === kind) {
+      stopSnippet();
+      return;
+    }
     try {
       setPlaying(kind);
       const res = await fetch("/api/tts", {
@@ -103,41 +121,51 @@ export function CharacterCard({ character, loading, data, error, onAddToVocab, v
     );
   }
 
+  // Scale character font size: single char → 3xl, short word → 2xl, phrase → xl (wraps naturally)
+  const charSizeClass =
+    (character?.length ?? 0) <= 1 ? "text-3xl" :
+    (character?.length ?? 0) <= 3 ? "text-2xl" :
+    "text-xl";
+
   return (
     <aside
-      className="h-full grid grid-rows-[auto_minmax(0,1fr)] overflow-hidden card-slide-in"
+      className="h-full overflow-y-auto thin-scroll card-slide-in"
       key={character}
     >
-      <header className="px-5 pt-4 pb-3 border-b border-border">
+      <header className="px-5 pt-4 pb-3 border-b border-border sticky top-0 bg-background z-10">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <div className="font-cjk-serif text-3xl leading-tight text-foreground break-words">{character}</div>
+            <div className={cn("font-cjk-serif leading-tight text-foreground break-words", charSizeClass)}>
+              {character}
+            </div>
             {loading ? (
               <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" /> Looking up…
               </div>
-            ) : data ? (
-              <div className="mt-1.5 pinyin text-sm text-[var(--red-ink)] font-medium leading-snug">
+            ) : data && data.pinyin ? (
+              <div className="mt-1.5 pinyin text-sm text-[var(--red-ink)] font-medium leading-snug break-words">
                 {data.pinyin}
               </div>
             ) : null}
           </div>
+          {/* Play / Pause button for the character/phrase audio */}
           <button
             type="button"
             onClick={() => character && playSnippet(character, "char")}
-            disabled={playing === "char"}
-            aria-label="Play character"
+            aria-label={playing === "char" ? "Pause" : "Play character"}
             className={cn(
               "shrink-0 inline-flex items-center justify-center h-7 w-7 rounded-full border border-border text-[var(--red-ink)] transition-colors",
-              "hover:bg-[var(--red-wash)] disabled:opacity-50",
+              "hover:bg-[var(--red-wash)]",
             )}
           >
-            {playing === "char" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Volume2 className="h-3 w-3" />}
+            {playing === "char"
+              ? <Pause className="h-3 w-3" fill="currentColor" />
+              : <Volume2 className="h-3 w-3" />}
           </button>
         </div>
       </header>
 
-      <div className="overflow-y-auto thin-scroll px-5 py-4 space-y-4">
+      <div className="px-5 py-4 space-y-4">
         {error && !loading && (
           <div className="rounded-md border border-destructive/30 bg-destructive/5 px-2.5 py-1.5 text-[11px] text-destructive">
             {error}
@@ -146,38 +174,39 @@ export function CharacterCard({ character, loading, data, error, onAddToVocab, v
 
         {data && (
           <>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="inline-flex items-center rounded-full border border-[var(--red-soft)] bg-[var(--red-wash)] px-2 py-0.5 text-[10px] font-medium text-[var(--red-ink)]">
-                {data.pos}
-              </span>
-            </div>
+            {/* Part of speech — only for single chars / short words */}
+            {!isPhrase && (              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="inline-flex items-center rounded-full border border-[var(--red-soft)] bg-[var(--red-wash)] px-2 py-0.5 text-[10px] font-medium text-[var(--red-ink)]">
+                  {data.pos}
+                </span>
+              </div>
+            )}
 
             <section>
               <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Translation</div>
-              <div className="text-xs text-foreground leading-snug">{data.translation}</div>
+              <div className="text-xs text-foreground leading-relaxed">{data.translation}</div>
             </section>
 
-            <section className="border-t border-border pt-3">
-              <div className="flex items-center justify-between mb-1.5">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Example</div>
-                <button
-                  type="button"
-                  onClick={() => playSnippet(data.example_zh, "example")}
-                  disabled={playing === "example"}
-                  aria-label="Play example"
-                  className="inline-flex items-center gap-1 text-[11px] text-[var(--red-ink)] hover:underline disabled:opacity-50"
-                >
-                  {playing === "example" ? (
-                    <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                  ) : (
-                    <Volume2 className="h-2.5 w-2.5" />
-                  )}
-                  Listen
-                </button>
-              </div>
-              <div className="font-cjk text-sm text-foreground leading-relaxed">{data.example_zh}</div>
-              <div className="text-[11px] text-muted-foreground mt-1 leading-relaxed">{data.example_en}</div>
-            </section>
+            {/* Example sentence — only for single chars / short words */}
+            {!isPhrase && (
+              <section className="border-t border-border pt-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Example</div>
+                  <button
+                    type="button"
+                    onClick={() => playSnippet(data.example_zh, "example")}
+                    aria-label={playing === "example" ? "Pause example" : "Play example"}
+                    className="inline-flex items-center gap-1 text-[11px] text-[var(--red-ink)] hover:underline"
+                  >
+                    {playing === "example"
+                      ? <><Pause className="h-2.5 w-2.5" fill="currentColor" /> Stop</>
+                      : <><Volume2 className="h-2.5 w-2.5" /> Listen</>}
+                  </button>
+                </div>
+                <div className="font-cjk text-sm text-foreground leading-relaxed">{data.example_zh}</div>
+                <div className="text-[11px] text-muted-foreground mt-1 leading-relaxed">{data.example_en}</div>
+              </section>
+            )}
 
             <section className="pt-1">
               <button
@@ -194,17 +223,11 @@ export function CharacterCard({ character, loading, data, error, onAddToVocab, v
                 )}
               >
                 {addedFlash ? (
-                  <>
-                    <Check className="h-3 w-3" /> Added to vocab
-                  </>
+                  <><Check className="h-3 w-3" /> Added to vocab</>
                 ) : alreadyInBank ? (
-                  <>
-                    <Check className="h-3 w-3" /> Already in vocab
-                  </>
+                  <><Check className="h-3 w-3" /> Already in vocab</>
                 ) : (
-                  <>
-                    <Plus className="h-3 w-3" /> Add to vocab
-                  </>
+                  <><Plus className="h-3 w-3" /> Add to vocab</>
                 )}
               </button>
             </section>

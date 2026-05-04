@@ -60,10 +60,19 @@
 .read-char:hover {
     background-color: var(--red-wash);
 }
+/* Pinyin overlay mode: kill the hover background so it doesn't bloom under each ruby */
+.pinyin-overlay .read-char:hover {
+    background-color: transparent;
+}
 .read-char.is-active {
     background-color: var(--red-ink);
     color: #fff;
     box-shadow: 0 0 0 1px var(--red-ink);
+}
+/* Ruby pinyin annotation: don't include in user selection or pin to the card */
+.read-char rt {
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 /* Subtitle line entrance */

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
+import { Languages } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { tokenize, getContextAround } from "@/lib/tokenize";
 import { AudioPlayer } from "./AudioPlayer";
@@ -7,6 +8,28 @@ import { SubtitleBar, type SubtitleItem } from "./SubtitleBar";
 import { capture } from "@/lib/analytics";
 
 const CJK_RE = /\p{Script=Han}/u;
+
+// Match a single pinyin syllable: optional initial consonant cluster +
+// one or more vowels (with or without tone marks) + optional ending.
+// Used to split Google Translate's word-grouped pinyin (e.g. "shìjiè") back
+// into per-character syllables (["shì", "jiè"]) for the ruby overlay.
+const PINYIN_SYL_RE =
+    /(?:zh|ch|sh|[bpmfdtnlgkhjqxrzcsyw])?[aeiouüāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ]+(?:ng|n|r)?/gi;
+
+function splitPinyinWord(word: string): string[] {
+    const matches = word.match(PINYIN_SYL_RE);
+    // Drop tokens that aren't pinyin (digits, punctuation, etc.) — they
+    // don't correspond to a CJK character and would shift the alignment.
+    return matches ?? [];
+}
+
+function splitPinyinIntoSyllables(text: string): string[] {
+    const out: string[] = [];
+    for (const word of text.split(/\s+/).filter(Boolean)) {
+        for (const syl of splitPinyinWord(word)) out.push(syl);
+    }
+    return out;
+}
 
 type Props = {
     content: string;
@@ -17,6 +40,8 @@ type Props = {
     onAudioChar: (char: string | null) => void;
     /** Optional max characters allowed in the textarea. */
     maxLength?: number;
+    /** Notifies the parent when the reader switches between Chinese and English views. */
+    onReaderModeChange?: (mode: "normal" | "english") => void;
 };
 
 export function Notepad({
@@ -25,12 +50,15 @@ export function Notepad({
     onSelectChar,
     onAudioChar,
     maxLength,
+    onReaderModeChange,
 }: Props) {
     const [isPlaying, setIsPlaying] = useState(false);
     // true once the user has ever clicked play for the current content;
     // keeps the span view visible even while paused.
     const [audioStarted, setAudioStarted] = useState(false);
     const [activeAlignIdx, setActiveAlignIdx] = useState<number | null>(null);
+    const [pinyinOverlay, setPinyinOverlay] = useState(false);
+    const [englishMode, setEnglishMode] = useState(false);
     const readPaneRef = useRef<HTMLDivElement | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
     const lastAudioCharRef = useRef<string | null>(null);
@@ -48,9 +76,63 @@ export function Notepad({
 
     const tokens = useMemo(() => tokenize(content), [content]);
 
+    // Map each CJK character offset → its pinyin syllable.
+    // Built by walking each subtitle's [charStart, charEnd) window in the
+    // original text and aligning CJK chars with pinyin syllables in order.
+    const pinyinByOffset = useMemo(() => {
+        const map = new Map<number, string>();
+        if (!subtitles) return map;
+        for (const sub of subtitles) {
+            const syllables = splitPinyinIntoSyllables(sub.pinyin);
+            let syllIdx = 0;
+            for (let i = sub.charStart; i < sub.charEnd; i++) {
+                const ch = content[i];
+                if (ch && CJK_RE.test(ch)) {
+                    map.set(i, syllables[syllIdx] ?? "");
+                    syllIdx++;
+                }
+            }
+        }
+        return map;
+    }, [subtitles, content]);
+
+    // English paragraphs: join sentence translations, breaking on original \n
+    const englishParagraphs = useMemo(() => {
+        if (!subtitles || subtitles.length === 0) return [];
+        const paras: string[] = [];
+        let current: string[] = [];
+        let lastEnd = 0;
+        for (const s of subtitles) {
+            const between = content.slice(lastEnd, s.charStart);
+            if (between.includes("\n") && current.length > 0) {
+                paras.push(current.join(" "));
+                current = [];
+            }
+            if (s.en) current.push(s.en);
+            lastEnd = s.charEnd;
+        }
+        if (current.length > 0) paras.push(current.join(" "));
+        return paras;
+    }, [content, subtitles]);
+
+    const togglePinyinOverlay = useCallback(() => {
+        setPinyinOverlay((p) => !p);
+    }, []);
+
+    const toggleEnglishMode = useCallback(() => {
+        setEnglishMode((m) => {
+            const next = !m;
+            onReaderModeChange?.(next ? "english" : "normal");
+            return next;
+        });
+    }, [onReaderModeChange]);
+
     // Reset audio + subtitle state when content changes
     useEffect(() => {
         setAudioStarted(false);
+        setPinyinOverlay(false);
+        setEnglishMode(false);
+        onReaderModeChange?.("normal");
         setSubtitles(null);
         setSubtitlesLoading(false);
         subtitleLoadedForRef.current = null;
@@ -58,11 +140,13 @@ export function Notepad({
             subtitleAbortRef.current.abort();
             subtitleAbortRef.current = null;
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [content]);
 
-    // Fetch subtitles once when playback starts (lazy, one fetch per unique text)
+    // Fetch subtitles lazily — needed for audio playback, pinyin overlay, and english mode
+    const wantsSubtitles = isPlaying || pinyinOverlay || englishMode;
     useEffect(() => {
-        if (!isPlaying) return;
+        if (!wantsSubtitles) return;
         if (!content.trim()) return;
         if (subtitleLoadedForRef.current === content) return;
 
@@ -92,7 +176,7 @@ export function Notepad({
         return () => {
             ctrl.abort();
         };
-    }, [isPlaying, content]);
+    }, [wantsSubtitles, content]);
 
     // Map alignment index → source character → notify parent
     useEffect(() => {
@@ -136,7 +220,13 @@ export function Notepad({
             const sel = window.getSelection();
             if (!sel || sel.rangeCount === 0) return;
             const range = sel.getRangeAt(0);
-            const text = sel.toString();
+            // Strip everything that isn't a CJK character or basic Chinese
+            // punctuation. <rt> pinyin is also marked user-select:none in CSS,
+            // but this guards against any leakage on Safari/Firefox.
+            const rawText = sel.toString();
+            const text = rawText
+                .replace(/[a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ]+/g, "")
+                .trim();
 
             // No selection → treat as click: pin the single char under the click target
             if (!text || range.collapsed) {
@@ -153,10 +243,11 @@ export function Notepad({
                 const offsetAttr = span.getAttribute("data-offset");
                 const offset = offsetAttr === null ? null : Number(offsetAttr);
                 if (offset === null || Number.isNaN(offset)) return;
-                onSelectChar(
-                    span.textContent ?? "",
-                    getContextAround(content, offset),
-                );
+                // Use the original content char (not span.textContent, which
+                // would include the <rt> pinyin in pinyin-overlay mode).
+                const ch = content[offset] ?? "";
+                if (!ch) return;
+                onSelectChar(ch, getContextAround(content, offset));
                 return;
             }
 
@@ -276,17 +367,48 @@ export function Notepad({
     );
 
     const hasContent = content.trim().length > 0;
+    // The span view is shown when audio has started OR the pinyin overlay is on.
+    // It supports selection-to-pin and double-click-to-seek when audio is active.
+    const showSpanView = (audioStarted || pinyinOverlay) && !englishMode;
+    // Subtitles still loading and we're depending on them for the current view
+    const overlayBlocked = (pinyinOverlay || englishMode) && subtitlesLoading && !subtitles;
 
     return (
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-            <div className="flex-1 min-h-0 overflow-hidden">
-                {audioStarted ? (
+            <div className="flex-1 min-h-0 overflow-hidden relative">
+                {englishMode ? (
+                    <div className="w-full h-full overflow-y-auto thin-scroll p-4 sm:p-8 text-base sm:text-lg leading-relaxed text-foreground select-text">
+                        {overlayBlocked && (
+                            <div className="text-sm text-muted-foreground italic">
+                                Translating…
+                            </div>
+                        )}
+                        {!overlayBlocked && englishParagraphs.length === 0 && (
+                            <div className="text-sm text-muted-foreground italic">
+                                Nothing to translate.
+                            </div>
+                        )}
+                        {englishParagraphs.map((p, i) => (
+                            <p key={i} className="mb-4 last:mb-0">
+                                {p}
+                            </p>
+                        ))}
+                    </div>
+                ) : showSpanView ? (
                     <div
                         ref={readPaneRef}
                         onPointerUp={handleSpanPointerUp}
                         onDoubleClick={handleSpanDoubleClick}
-                        className="w-full h-full overflow-y-auto thin-scroll p-4 sm:p-8 font-cjk text-xl sm:text-2xl leading-loose whitespace-pre-wrap text-foreground cursor-text select-text"
+                        className={cn(
+                            "w-full h-full overflow-y-auto thin-scroll p-4 sm:p-8 font-cjk text-xl sm:text-2xl text-foreground cursor-text select-text whitespace-pre-wrap",
+                            pinyinOverlay ? "pinyin-overlay leading-[2.4em]" : "leading-loose",
+                        )}
                     >
+                        {overlayBlocked && pinyinOverlay && (
+                            <div className="text-sm text-muted-foreground italic mb-2">
+                                Loading pinyin…
+                            </div>
+                        )}
                         {tokens.map((t, i) => {
                             if (!t.isCJK) {
                                 return (
@@ -301,6 +423,7 @@ export function Notepad({
                             const isActive =
                                 activeAlignIdx !== null &&
                                 t.offset === activeAlignIdx;
+                            const ruby = pinyinOverlay ? pinyinByOffset.get(t.offset) : undefined;
                             return (
                                 <span
                                     key={`c${i}`}
@@ -310,7 +433,16 @@ export function Notepad({
                                         isActive && "is-active",
                                     )}
                                 >
-                                    {t.text}
+                                    {ruby ? (
+                                        <ruby>
+                                            {t.text}
+                                            <rt className="pinyin text-[0.4em] font-normal text-[var(--red-ink)]/85 italic tracking-tight">
+                                                {ruby}
+                                            </rt>
+                                        </ruby>
+                                    ) : (
+                                        t.text
+                                    )}
                                 </span>
                             );
                         })}
@@ -354,27 +486,69 @@ export function Notepad({
                             )}
                     </div>
                 )}
+
+                {/* Floating action buttons — pinyin overlay & english translate */}
+                {hasContent && (
+                    <div className="absolute right-4 bottom-4 flex flex-col gap-2 z-20">
+                        <button
+                            type="button"
+                            onClick={togglePinyinOverlay}
+                            disabled={englishMode}
+                            aria-label={pinyinOverlay ? "Hide pinyin" : "Show pinyin"}
+                            title={pinyinOverlay ? "Hide pinyin" : "Show pinyin overlay"}
+                            className={cn(
+                                "h-11 w-11 rounded-full inline-flex items-center justify-center shadow-md transition-all",
+                                "border border-[var(--red-soft)]",
+                                "disabled:opacity-30 disabled:cursor-not-allowed",
+                                pinyinOverlay
+                                    ? "bg-[var(--red-ink)] text-white hover:brightness-110"
+                                    : "bg-background text-[var(--red-ink)] hover:bg-[var(--red-wash)]",
+                            )}
+                        >
+                            <span className="font-cjk-serif text-lg leading-none">拼</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={toggleEnglishMode}
+                            aria-label={englishMode ? "Show Chinese" : "Translate to English"}
+                            title={englishMode ? "Show original Chinese" : "Translate everything to English"}
+                            className={cn(
+                                "h-11 w-11 rounded-full inline-flex items-center justify-center shadow-md transition-all",
+                                "border border-[var(--red-soft)]",
+                                englishMode
+                                    ? "bg-[var(--red-ink)] text-white hover:brightness-110"
+                                    : "bg-background text-[var(--red-ink)] hover:bg-[var(--red-wash)]",
+                            )}
+                        >
+                            <Languages className="h-5 w-5" />
+                        </button>
+                    </div>
+                )}
             </div>
 
-            <SubtitleBar
-                subtitles={subtitles}
-                activeOffset={activeAlignIdx}
-                visible={isPlaying}
-                loading={subtitlesLoading}
-            />
+            {!englishMode && (
+                <SubtitleBar
+                    subtitles={subtitles}
+                    activeOffset={activeAlignIdx}
+                    visible={isPlaying}
+                    loading={subtitlesLoading}
+                />
+            )}
 
-            <AudioPlayer
-                text={content}
-                onActiveOffset={setActiveAlignIdx}
-                onPlayIntent={handlePlayIntent}
-                canPlay={!subtitlesLoading}
-                seekRef={seekRef}
-                onPlayStateChange={(playing) => {
-                    if (!playing) {
-                        setIsPlaying(false);
-                    }
-                }}
-            />
+            {!englishMode && (
+                <AudioPlayer
+                    text={content}
+                    onActiveOffset={setActiveAlignIdx}
+                    onPlayIntent={handlePlayIntent}
+                    canPlay={!subtitlesLoading}
+                    seekRef={seekRef}
+                    onPlayStateChange={(playing) => {
+                        if (!playing) {
+                            setIsPlaying(false);
+                        }
+                    }}
+                />
+            )}
         </div>
     );
 }

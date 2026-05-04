@@ -1,12 +1,7 @@
 import { LOOKUP_SYSTEM_PROMPT, VOCAB_SYSTEM_PROMPT } from "./_prompts.js";
 import { chunkTextWithOffsets, chunkBySentence } from "./lib/chunking.js";
 import { fetchGoogleTtsChunk } from "./lib/google-tts.js";
-import {
-    fetchSubtitleBatch,
-    SUBTITLE_BATCH_SIZE,
-    type SubtitleBatchInput,
-    type SubtitleBatchOutput,
-} from "./lib/openai.js";
+import { googleTranslate, mapWithConcurrency } from "./lib/google-translate.js";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -49,8 +44,24 @@ export async function googleTranslateTts(
 
 // ─── Lookup ──────────────────────────────────────────────────────────────────
 
+// Above this character count we batch through the subtitle pipeline so that
+// pinyin + translation are reliable even for long passages (single-call GPT
+// truncates and we'd lose pinyin entirely).
+const PASSAGE_THRESHOLD = 30;
+
 export async function openAiLookup(text: string, context?: string) {
     if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
+
+    if (text.length > PASSAGE_THRESHOLD) {
+        const subs = await openAiSubtitles(text);
+        return {
+            pinyin: subs.map((s) => s.pinyin).filter(Boolean).join("  "),
+            pos: "",
+            translation: subs.map((s) => s.en).filter(Boolean).join(" "),
+            example_zh: "",
+            example_en: "",
+        };
+    }
 
     const user = context
         ? `Word: ${text}\nContext sentence: ${context}`
@@ -98,42 +109,28 @@ export type SubtitleItem = {
     en: string;
 };
 
-export async function openAiSubtitles(text: string): Promise<SubtitleItem[]> {
-    if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
+// How many concurrent Google Translate requests to keep in flight.
+// The free web endpoint handles 8–16 fine; tune up for faster long-passage loads.
+const TRANSLATE_CONCURRENCY = 12;
 
+export async function openAiSubtitles(text: string): Promise<SubtitleItem[]> {
     const pieces = chunkBySentence(text);
     if (pieces.length === 0) return [];
 
-    const numbered: SubtitleBatchInput[] = pieces.map((p, i) => ({
-        id: i + 1,
-        text: p.text,
-    }));
-
-    const batches: SubtitleBatchInput[][] = [];
-    for (let i = 0; i < numbered.length; i += SUBTITLE_BATCH_SIZE) {
-        batches.push(numbered.slice(i, i + SUBTITLE_BATCH_SIZE));
-    }
-
-    const settled = await Promise.allSettled(
-        batches.map((batch) => fetchSubtitleBatch(batch, OPENAI_API_KEY!)),
+    const results = await mapWithConcurrency(
+        pieces,
+        TRANSLATE_CONCURRENCY,
+        (piece) => googleTranslate(piece.text),
     );
-    const allItems: SubtitleBatchOutput[] = [];
-    for (const result of settled) {
-        if (result.status === "fulfilled") allItems.push(...result.value);
-        else console.error("subtitle batch failed:", result.reason);
-    }
-
-    const byId = new Map<number, SubtitleBatchOutput>();
-    for (const item of allItems) byId.set(item.id, item);
 
     return pieces.map((piece, i) => {
-        const gpt = byId.get(i + 1);
+        const r = results[i];
         return {
             charStart: piece.charStart,
             charEnd: piece.charEnd,
             zh: piece.text,
-            pinyin: gpt?.pinyin ?? "",
-            en: gpt?.en ?? "",
+            pinyin: r?.pinyin ?? "",
+            en: r?.translation ?? "",
         };
     });
 }

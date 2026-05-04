@@ -9,13 +9,15 @@ export type VocabEntry = {
 };
 
 type Props = {
-    text: string;
-    entries: VocabEntry[] | null;
-    loading: boolean;
-    error: string | null;
-    onGenerate: () => void;
-    onRemoveEntry: (zh: string) => void;
-    onSelectEntry?: (entry: VocabEntry) => void;
+  text: string;
+  entries: VocabEntry[] | null;
+  loading: boolean;
+  error: string | null;
+  onGenerate: () => void;
+  onRemoveEntry: (zh: string) => void;
+  onSelectEntry?: (entry: VocabEntry) => void;
+  /** When true, the bank is read-only (Generate disabled, rows non-clickable). */
+  frozen?: boolean;
 };
 
 type VocabBankPanelProps = Props & {
@@ -45,17 +47,19 @@ function abbreviatePos(pos: string): string {
 }
 
 export function VocabBankPanel({
-    text,
-    entries,
-    loading,
-    error,
-    onGenerate,
-    onRemoveEntry,
-    onSelectEntry,
-    className,
+  text,
+  entries,
+  loading,
+  error,
+  onGenerate,
+  onRemoveEntry,
+  onSelectEntry,
+  frozen = false,
+  className,
 }: VocabBankPanelProps) {
-    const hasContent = text.trim().length > 0;
-    const hasEntries = entries !== null && entries.length > 0;
+  const hasContent = text.trim().length > 0;
+  const hasEntries = entries !== null && entries.length > 0;
+  const interactive = !frozen;
 
     return (
         <div
@@ -102,7 +106,7 @@ export function VocabBankPanel({
                 <button
                     type="button"
                     onClick={onGenerate}
-                    disabled={loading || !hasContent}
+                    disabled={loading || !hasContent || frozen}
                     className={cn(
                         "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium",
                         "border border-[#D4AF37] text-[#D4AF37] bg-transparent",
@@ -110,7 +114,9 @@ export function VocabBankPanel({
                         "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[#D4AF37]",
                     )}
                     title={
-                        hasContent
+                        frozen
+                            ? "Switch back to Chinese mode to edit vocab"
+                            : hasContent
                             ? "Generate vocab from text"
                             : "Paste some text first"
                     }
@@ -150,7 +156,7 @@ export function VocabBankPanel({
                 {hasEntries && (
                     <ul className="divide-y divide-[rgba(255,248,231,0.08)]">
                         {entries!.map((entry, i) => {
-                            const clickable = !!onSelectEntry;
+                            const clickable = !!onSelectEntry && !frozen;
                             const Tag = clickable ? "button" : "div";
                             return (
                                 <li
@@ -199,21 +205,23 @@ export function VocabBankPanel({
                                         </div>
                                     </Tag>
 
-                                    <button
-                                        type="button"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onRemoveEntry(entry.zh);
-                                        }}
-                                        aria-label={`Remove ${entry.zh}`}
-                                        className={cn(
-                                            "absolute top-2 right-2 inline-flex items-center justify-center h-5 w-5 rounded-full",
-                                            "text-[#FFF8E7]/40 hover:text-[#FFF8E7] hover:bg-black/30",
-                                            "opacity-0 group-hover:opacity-100",
-                                        )}
-                                    >
-                                        <X className="h-3 w-3" />
-                                    </button>
+                                    {!frozen && (
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onRemoveEntry(entry.zh);
+                                            }}
+                                            aria-label={`Remove ${entry.zh}`}
+                                            className={cn(
+                                                "absolute top-2 right-2 inline-flex items-center justify-center h-5 w-5 rounded-full",
+                                                "text-[#FFF8E7]/40 hover:text-[#FFF8E7] hover:bg-black/30",
+                                                "opacity-0 group-hover:opacity-100",
+                                            )}
+                                        >
+                                            <X className="h-3 w-3" />
+                                        </button>
+                                    )}
                                 </li>
                             );
                         })}

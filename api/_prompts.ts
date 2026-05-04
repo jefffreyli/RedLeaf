@@ -8,22 +8,6 @@ export const LOOKUP_SYSTEM_PROMPT = `You are a Chinese language tutor. Given a C
 }
 Use simplified Chinese. If the input has multiple common meanings, pick the most common one. Never include markdown or commentary, only JSON.`;
 
-export const SUBTITLES_SYSTEM_PROMPT = `You are a Chinese reading assistant. Given a JSON array of numbered Chinese text segments, return pinyin with proper tone marks and a concise English translation for each segment.
-
-Return strict JSON with a single key "items" — one object per input segment, in the same order:
-{
-  "items": [
-    { "id": 1, "pinyin": "...", "en": "..." },
-    ...
-  ]
-}
-
-Rules:
-- id: same integer as the input segment
-- pinyin: full reading of the segment with proper tone marks (ā á ǎ à ē é ě è ī í ǐ ì ō ó ǒ ò ū ú ǔ ù ǖ ǘ ǚ ǜ), syllables space-separated, no numbers
-- en: natural English translation of the segment, 1–12 words
-- Never skip a segment. Never include markdown or commentary, only JSON.`;
-
 export const VOCAB_SYSTEM_PROMPT = `You are an expert Chinese language teacher for a heritage speaker with intermediate-to-advanced fluency. Analyze the given Chinese text and extract the vocabulary items a learner should focus on.
 
 Choose the number of entries based on the text itself, NOT a fixed count:
