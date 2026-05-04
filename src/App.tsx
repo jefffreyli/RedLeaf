@@ -12,6 +12,7 @@ const STORAGE_KEY = "chinese-reader/tabs/v1";
 const ACTIVE_KEY = "chinese-reader/active/v1";
 const ONBOARDED_KEY = "chinese-reader/onboarded/v1";
 const HOVER_DEBOUNCE_MS = 220;
+const MAX_TAB_CHARS = 5000;
 
 function titleFromContent(text: string): string {
   const trimmed = text.trim();
@@ -142,8 +143,9 @@ export function App() {
 
   const updateContent = useCallback(
     (next: string) => {
+      const clamped = next.length > MAX_TAB_CHARS ? next.slice(0, MAX_TAB_CHARS) : next;
       setTabs(prev => prev.map(t =>
-        t.id === activeTabId ? { ...t, content: next, title: titleFromContent(next) } : t,
+        t.id === activeTabId ? { ...t, content: clamped, title: titleFromContent(clamped) } : t,
       ));
     },
     [activeTabId],
@@ -421,6 +423,7 @@ export function App() {
           error={vocabError}
           onGenerate={handleGenerateVocab}
           onRemoveEntry={handleRemoveVocab}
+          onSelectEntry={entry => handleSelectChar(entry.zh)}
         />
         <div className="flex-1 min-w-0 min-h-0 border-x border-border overflow-hidden flex flex-col">
           <Notepad
@@ -430,6 +433,7 @@ export function App() {
             onHoverChar={handleHoverChar}
             onSelectChar={handleSelectChar}
             onAudioChar={handleAudioChar}
+            maxLength={MAX_TAB_CHARS}
           />
         </div>
         <aside className="hidden md:block w-80 shrink-0 min-h-0 overflow-hidden bg-background">
@@ -466,6 +470,10 @@ export function App() {
               error={vocabError}
               onGenerate={handleGenerateVocab}
               onRemoveEntry={handleRemoveVocab}
+              onSelectEntry={entry => {
+                setVocabModalOpen(false);
+                handleSelectChar(entry.zh);
+              }}
               className="h-full flex-none"
             />
           </div>

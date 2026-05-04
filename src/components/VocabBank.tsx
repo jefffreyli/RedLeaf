@@ -15,6 +15,7 @@ type Props = {
   error: string | null;
   onGenerate: () => void;
   onRemoveEntry: (zh: string) => void;
+  onSelectEntry?: (entry: VocabEntry) => void;
 };
 
 type VocabBankPanelProps = Props & {
@@ -50,6 +51,7 @@ export function VocabBankPanel({
   error,
   onGenerate,
   onRemoveEntry,
+  onSelectEntry,
   className,
 }: VocabBankPanelProps) {
   const hasContent = text.trim().length > 0;
@@ -103,12 +105,8 @@ export function VocabBankPanel({
           )}
           title={hasContent ? "Generate vocab from text" : "Paste some text first"}
         >
-          {loading ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <Sparkles className="h-3 w-3" />
-          )}
-          {loading ? "Working" : hasEntries ? "Refresh" : "Generate"}
+          <Sparkles className="h-3 w-3" />
+          {hasEntries ? "Refresh" : "Generate"}
         </button>
       </header>
 
@@ -139,52 +137,65 @@ export function VocabBankPanel({
 
         {hasEntries && (
           <ul className="divide-y divide-[rgba(255,248,231,0.08)]">
-            {entries!.map((entry, i) => (
-              <li
-                key={`${entry.zh}-${i}`}
-                className={cn(
-                  "group relative px-4 py-2.5",
-                  i % 2 === 1 && "bg-white/[0.025]",
-                )}
-              >
-                <div className="flex items-baseline gap-2">
-                  <span className="font-cjk-serif text-lg text-[#FFF8E7] leading-tight break-words">
-                    {entry.zh}
-                  </span>
-                  <span className="pinyin text-[11px] italic text-[#D4AF37] leading-tight truncate">
-                    {entry.pinyin}
-                  </span>
-                </div>
-                <div className="mt-1 flex items-center gap-2 flex-wrap">
-                  <span
-                    className="inline-flex items-center text-[9px] uppercase tracking-wider px-1.5 py-[1px] rounded-sm"
-                    style={{
-                      color: "#F0CB58",
-                      border: "1px solid rgba(212,175,55,0.45)",
-                      background: "rgba(122,18,18,0.28)",
-                    }}
-                  >
-                    {abbreviatePos(entry.pos || "")}
-                  </span>
-                  <span className="text-[11px] text-[#E8C9A0] leading-snug flex-1 min-w-0 break-words">
-                    {entry.translation}
-                  </span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => onRemoveEntry(entry.zh)}
-                  aria-label={`Remove ${entry.zh}`}
+            {entries!.map((entry, i) => {
+              const clickable = !!onSelectEntry;
+              const Tag = clickable ? "button" : "div";
+              return (
+                <li
+                  key={`${entry.zh}-${i}`}
                   className={cn(
-                    "absolute top-2 right-2 inline-flex items-center justify-center h-5 w-5 rounded-full",
-                    "text-[#FFF8E7]/40 hover:text-[#FFF8E7] hover:bg-black/30",
-                    "opacity-0 group-hover:opacity-100",
+                    "group relative",
+                    i % 2 === 1 && "bg-white/[0.025]",
                   )}
                 >
-                  <X className="h-3 w-3" />
-                </button>
-              </li>
-            ))}
+                  <Tag
+                    type={clickable ? "button" : undefined}
+                    onClick={clickable ? () => onSelectEntry!(entry) : undefined}
+                    className={cn(
+                      "block w-full text-left px-4 py-2.5",
+                      clickable && "cursor-pointer hover:bg-white/[0.05] focus:outline-none focus:bg-white/[0.05] transition-colors",
+                    )}
+                  >
+                    <div className="flex items-baseline gap-2 pr-6">
+                      <span className="font-cjk-serif text-lg text-[#FFF8E7] leading-tight break-words">
+                        {entry.zh}
+                      </span>
+                      <span className="pinyin text-[11px] italic text-[#D4AF37] leading-tight truncate">
+                        {entry.pinyin}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 flex-wrap">
+                      <span
+                        className="inline-flex items-center text-[9px] uppercase tracking-wider px-1.5 py-[1px] rounded-sm"
+                        style={{
+                          color: "#F0CB58",
+                          border: "1px solid rgba(212,175,55,0.45)",
+                          background: "rgba(122,18,18,0.28)",
+                        }}
+                      >
+                        {abbreviatePos(entry.pos || "")}
+                      </span>
+                      <span className="text-[11px] text-[#E8C9A0] leading-snug flex-1 min-w-0 break-words">
+                        {entry.translation}
+                      </span>
+                    </div>
+                  </Tag>
+
+                  <button
+                    type="button"
+                    onClick={e => { e.stopPropagation(); onRemoveEntry(entry.zh); }}
+                    aria-label={`Remove ${entry.zh}`}
+                    className={cn(
+                      "absolute top-2 right-2 inline-flex items-center justify-center h-5 w-5 rounded-full",
+                      "text-[#FFF8E7]/40 hover:text-[#FFF8E7] hover:bg-black/30",
+                      "opacity-0 group-hover:opacity-100",
+                    )}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
@@ -208,3 +219,7 @@ export function VocabBank(props: Props) {
     </aside>
   );
 }
+
+// Re-export so consumers don't need a second import. Both `VocabBank` and
+// `VocabBankPanel` accept the optional `onSelectEntry` callback.
+export type { Props as VocabBankProps };

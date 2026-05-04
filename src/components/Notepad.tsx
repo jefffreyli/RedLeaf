@@ -16,9 +16,11 @@ type Props = {
   onSelectChar: (char: string | null, context?: string) => void;
   /** Called with the currently highlighted char during audio playback (from cache only). */
   onAudioChar: (char: string | null) => void;
+  /** Optional max characters allowed in the textarea. */
+  maxLength?: number;
 };
 
-export function Notepad({ content, onContentChange, onHoverChar, onSelectChar, onAudioChar }: Props) {
+export function Notepad({ content, onContentChange, onHoverChar, onSelectChar, onAudioChar, maxLength }: Props) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeAlignIdx, setActiveAlignIdx] = useState<number | null>(null);
   const [hoveredOffset, setHoveredOffset] = useState<number | null>(null);
@@ -149,6 +151,50 @@ export function Notepad({ content, onContentChange, onHoverChar, onSelectChar, o
     }
   }, [hoveredOffset, onHoverChar]);
 
+  // Selection in span view → pin to card. Reads window.getSelection() and
+  // resolves character offsets via the [data-offset] attribute on each .read-char span.
+  // Falls back to clicking a single character (unpins on whitespace/punctuation).
+  const handleSpanPointerUp = useCallback(() => {
+    // Wait a tick so the browser commits the final selection range
+    window.setTimeout(() => {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return;
+      const range = sel.getRangeAt(0);
+      const text = sel.toString();
+
+      // No selection → treat as click: pin the single char under the click target
+      if (!text || range.collapsed) {
+        const node = range.startContainer;
+        const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+        const span = el?.closest<HTMLElement>(".read-char");
+        if (!span) {
+          onSelectChar(null);
+          return;
+        }
+        const offsetAttr = span.getAttribute("data-offset");
+        const offset = offsetAttr === null ? null : Number(offsetAttr);
+        if (offset === null || Number.isNaN(offset)) return;
+        onSelectChar(span.textContent ?? "", getContextAround(content, offset));
+        return;
+      }
+
+      if (!CJK_RE.test(text)) {
+        onSelectChar(null);
+        return;
+      }
+
+      // Find the start offset by walking up to the first .read-char span at/after the start
+      const startEl = (range.startContainer.nodeType === Node.TEXT_NODE
+        ? range.startContainer.parentElement
+        : (range.startContainer as HTMLElement));
+      const startSpan = startEl?.closest<HTMLElement>(".read-char");
+      const startOffsetAttr = startSpan?.getAttribute("data-offset");
+      const startOffset = startOffsetAttr ? Number(startOffsetAttr) : 0;
+
+      onSelectChar(text, getContextAround(content, startOffset));
+    }, 30);
+  }, [content, onSelectChar]);
+
   // Text highlight in textarea → pin to card (single cursor position with no selection → unpin)
   const handleTextareaInteract = useCallback(() => {
     const ta = textareaRef.current;
@@ -233,7 +279,8 @@ export function Notepad({ content, onContentChange, onHoverChar, onSelectChar, o
             ref={readPaneRef}
             onMouseMove={handleSpanMouseMove}
             onMouseLeave={handleSpanMouseLeave}
-            className="w-full h-full overflow-y-auto thin-scroll p-4 sm:p-8 font-cjk text-xl sm:text-2xl leading-loose whitespace-pre-wrap text-foreground cursor-default"
+            onPointerUp={handleSpanPointerUp}
+            className="w-full h-full overflow-y-auto thin-scroll p-4 sm:p-8 font-cjk text-xl sm:text-2xl leading-loose whitespace-pre-wrap text-foreground cursor-text select-text"
           >
             {tokens.map((t, i) => {
               if (!t.isCJK) {
@@ -259,20 +306,35 @@ export function Notepad({ content, onContentChange, onHoverChar, onSelectChar, o
             )}
           </div>
         ) : (
-          <textarea
-            ref={textareaRef}
-            value={content}
-            onChange={e => onContentChange(e.target.value)}
-            onPointerDown={() => { pointerInTextareaRef.current = true; }}
-            onKeyUp={handleTextareaInteract}
-            placeholder={"把中文字粘贴到这里…"}
-            spellCheck={false}
-            className={cn(
-              "w-full h-full block resize-none p-4 sm:p-8 bg-transparent outline-none border-0",
-              "font-cjk text-xl sm:text-2xl leading-loose text-foreground placeholder:text-muted-foreground/50",
-              "thin-scroll",
+          <div className="relative h-full">
+            <textarea
+              ref={textareaRef}
+              value={content}
+              onChange={e => onContentChange(e.target.value)}
+              onPointerDown={() => { pointerInTextareaRef.current = true; }}
+              onKeyUp={handleTextareaInteract}
+              maxLength={maxLength}
+              placeholder={"把中文字粘贴到这里…"}
+              spellCheck={false}
+              className={cn(
+                "w-full h-full block resize-none p-4 sm:p-8 bg-transparent outline-none border-0",
+                "font-cjk text-xl sm:text-2xl leading-loose text-foreground placeholder:text-muted-foreground/50",
+                "thin-scroll",
+              )}
+            />
+            {maxLength !== undefined && content.length > maxLength * 0.8 && (
+              <div
+                className={cn(
+                  "absolute bottom-2 right-3 text-[10px] tabular-nums px-1.5 py-0.5 rounded bg-background/80 backdrop-blur-sm pointer-events-none",
+                  content.length >= maxLength
+                    ? "text-[var(--red-ink)] font-medium"
+                    : "text-muted-foreground",
+                )}
+              >
+                {content.length} / {maxLength}
+              </div>
             )}
-          />
+          </div>
         )}
       </div>
 

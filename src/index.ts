@@ -5,7 +5,7 @@ import {
     openAiLookup,
     openAiVocabBank,
     openAiSubtitles,
-} from "./api/routes";
+} from "../api/_routes";
 
 type TtsRequest = { text: string };
 type LookupRequest = { text: string; context?: string };
