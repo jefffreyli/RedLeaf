@@ -29,10 +29,8 @@ export function SubtitleBar({ subtitles, activeOffset, visible, loading = false 
       hideTimerRef.current = null;
     }
 
-    if (!visible) {
-      hideTimerRef.current = window.setTimeout(() => setDisplayed(null), 500);
-      return;
-    }
+    // When paused (!visible), keep whatever is currently displayed.
+    if (!visible) return;
 
     if (!subtitles || subtitles.length === 0) return;
 
@@ -56,7 +54,7 @@ export function SubtitleBar({ subtitles, activeOffset, visible, loading = false 
     prevSubsRef.current = subtitles;
   }, [subtitles]);
 
-  if (!visible || (!displayed && !loading)) return null;
+  if (!displayed && !(visible && loading)) return null;
 
   return (
     <div

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type React from "react";
 import { Loader2, Pause, Play, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -17,12 +18,24 @@ type Props = {
    * off calling audio.play() until this becomes true.
    */
   canPlay?: boolean;
+  /**
+   * Ref populated by AudioPlayer with a function that seeks to the given
+   * character offset in the audio timeline. Callers (e.g. Notepad) can use
+   * this for double-click-to-seek without lifting all audio state up.
+   */
+  seekRef?: React.MutableRefObject<((charOffset: number) => void) | null>;
 };
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 const MOBILE_SPEEDS = [0.75, 1, 1.25] as const;
 
-export function AudioPlayer({ text, onActiveOffset, onPlayStateChange, onPlayIntent, canPlay = true }: Props) {
+// Google Translate TTS pads each MP3 chunk with leading/trailing silence.
+// These constants are shared between the forward (time→offset) and inverse
+// (offset→time) mapping so both directions stay in sync.
+const CHUNK_LEAD_SILENCE = 0.04;
+const CHUNK_TAIL_SILENCE = 0.18;
+
+export function AudioPlayer({ text, onActiveOffset, onPlayStateChange, onPlayIntent, canPlay = true, seekRef }: Props) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const urlRef = useRef<string | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -135,13 +148,6 @@ export function AudioPlayer({ text, onActiveOffset, onPlayStateChange, onPlayInt
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Google Translate TTS pads each MP3 chunk with leading and (notably more)
-  // trailing silence. If we treat the whole chunk duration as speech, the
-  // highlight crawls through silence at the end and lags the reader by 1-2
-  // chars per chunk. Compress the effective speech window.
-  const CHUNK_LEAD_SILENCE = 0.04; // ~40ms before speech begins
-  const CHUNK_TAIL_SILENCE = 0.18; // ~180ms of silence after speech ends
-
   const offsetForTime = (t: number, dur: number): number | null => {
     const len = textLenRef.current;
     if (!len || !dur) return null;
@@ -183,6 +189,69 @@ export function AudioPlayer({ text, onActiveOffset, onPlayStateChange, onPlayInt
     const idx = Math.floor(progress * len);
     return Math.min(len - 1, idx);
   };
+
+  /** Inverse of offsetForTime: maps a character offset back to a playback time. */
+  const timeForOffset = (charOffset: number, dur: number): number | null => {
+    const timed = timedChunksRef.current;
+    if (!timed || !timed.length || !dur) return null;
+
+    const chunk =
+      timed.find(c => charOffset >= c.charStart && charOffset < c.charEnd) ??
+      timed[timed.length - 1]!;
+
+    const charLen = chunk.charEnd - chunk.charStart;
+    const progress =
+      charLen > 0
+        ? Math.max(0, Math.min(1, (charOffset - chunk.charStart) / charLen))
+        : 0;
+
+    const fullSpan = chunk.tEnd - chunk.tStart;
+    const lead = Math.min(CHUNK_LEAD_SILENCE, fullSpan * 0.1);
+    const tail = Math.min(CHUNK_TAIL_SILENCE, fullSpan * 0.25);
+    const effStart = chunk.tStart + lead;
+    const effEnd = Math.max(effStart + 0.05, chunk.tEnd - tail);
+    const effSpan = Math.max(1e-3, effEnd - effStart);
+
+    return effStart + progress * effSpan;
+  };
+
+  const seekToChar = useCallback(
+    (charOffset: number) => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      const dur = audio.duration || duration;
+      if (!dur) return;
+
+      const t = timeForOffset(charOffset, dur);
+      if (t === null) return;
+
+      audio.currentTime = t;
+      setCurrentTime(t);
+
+      const offset = offsetForTime(t, dur);
+      if (offset !== null && offset !== lastEmittedRef.current) {
+        lastEmittedRef.current = offset;
+        onActiveOffset(offset);
+      }
+
+      // Resume playback if paused so the seek feels immediate
+      if (audio.paused && !audio.ended) {
+        audio.play().then(() => {
+          if (rafRef.current === null) rafRef.current = requestAnimationFrame(tick);
+        }).catch(() => {});
+      }
+    },
+    // tick and offsetForTime/timeForOffset are stable within this render;
+    // duration + onActiveOffset are the real reactive deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [duration, onActiveOffset],
+  );
+
+  // Expose seekToChar via ref so Notepad can call it on double-click
+  useEffect(() => {
+    if (seekRef) seekRef.current = seekToChar;
+    return () => { if (seekRef) seekRef.current = null; };
+  }, [seekRef, seekToChar]);
 
   const tick = useCallback(() => {
     const audio = audioRef.current;
